@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -290,6 +291,98 @@ func (s *MediaStore) GetMediaByChat(chatJID string, limit int) ([]MediaMetadata,
 		}
 
 		// handle nullable fields
+		if filePath.Valid {
+			meta.FilePath = filePath.String
+		}
+		if width.Valid {
+			w := int(width.Int64)
+			meta.Width = &w
+		}
+		if height.Valid {
+			h := int(height.Int64)
+			meta.Height = &h
+		}
+		if duration.Valid {
+			d := int(duration.Int64)
+			meta.Duration = &d
+		}
+		if downloadTimestampUnix.Valid {
+			ts := time.Unix(downloadTimestampUnix.Int64, 0)
+			meta.DownloadTimestamp = &ts
+		}
+		if downloadError.Valid {
+			meta.DownloadError = downloadError.String
+		}
+
+		results = append(results, meta)
+	}
+
+	return results, rows.Err()
+}
+
+// ListMedia returns media filtered by optional chat JID and/or MIME type prefix.
+// Both filters are optional — omit either by passing an empty string.
+func (s *MediaStore) ListMedia(chatJID string, mimeTypePrefix string, limit int) ([]MediaMetadata, error) {
+	var conditions []string
+	var args []any
+
+	if chatJID != "" {
+		conditions = append(conditions, "msg.chat_jid = ?")
+		args = append(args, chatJID)
+	}
+	if mimeTypePrefix != "" {
+		conditions = append(conditions, "m.mime_type LIKE ?")
+		args = append(args, mimeTypePrefix+"%")
+	}
+
+	where := ""
+	if len(conditions) > 0 {
+		where = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	query := fmt.Sprintf(`
+	SELECT m.message_id, m.file_path, m.file_name, m.file_size, m.mime_type,
+	       m.width, m.height, m.duration, m.download_status, m.download_timestamp, m.download_error
+	FROM media_metadata m
+	JOIN messages msg ON m.message_id = msg.id
+	%s
+	ORDER BY msg.timestamp DESC
+	LIMIT ?
+	`, where)
+
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []MediaMetadata
+	for rows.Next() {
+		var meta MediaMetadata
+		var filePath sql.NullString
+		var width, height, duration sql.NullInt64
+		var downloadTimestampUnix sql.NullInt64
+		var downloadError sql.NullString
+
+		err := rows.Scan(
+			&meta.MessageID,
+			&filePath,
+			&meta.FileName,
+			&meta.FileSize,
+			&meta.MimeType,
+			&width,
+			&height,
+			&duration,
+			&meta.DownloadStatus,
+			&downloadTimestampUnix,
+			&downloadError,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		if filePath.Valid {
 			meta.FilePath = filePath.String
 		}

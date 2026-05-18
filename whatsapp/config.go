@@ -20,12 +20,12 @@ func LoadMediaConfig() MediaConfig {
 	cfg := MediaConfig{
 		AutoDownloadEnabled:     config.GetEnvBool("MEDIA_AUTO_DOWNLOAD_ENABLED", true),
 		AutoDownloadFromHistory: config.GetEnvBool("MEDIA_AUTO_DOWNLOAD_FROM_HISTORY", false),
-		AutoDownloadMaxSize:     config.GetEnvInt64("MEDIA_AUTO_DOWNLOAD_MAX_SIZE_MB", 10) * 1024 * 1024,
+		AutoDownloadMaxSize:     config.GetEnvInt64("MEDIA_AUTO_DOWNLOAD_MAX_SIZE_MB", 25) * 1024 * 1024,
 		StoragePath:             paths.DataMediaDir,
 	}
 
 	// parse allowed types
-	typesStr := config.GetEnv("MEDIA_AUTO_DOWNLOAD_TYPES", "image,audio,sticker")
+	typesStr := config.GetEnv("MEDIA_AUTO_DOWNLOAD_TYPES", "image,audio,sticker,video,document")
 	cfg.AutoDownloadTypes = make(map[string]bool)
 	for _, t := range strings.Split(typesStr, ",") {
 		cfg.AutoDownloadTypes[strings.TrimSpace(t)] = true

@@ -131,4 +131,16 @@ func (m *MCPServer) registerTools() {
 		),
 		m.handleListMedia,
 	)
+
+	// 9. get media file content
+	m.server.AddTool(
+		mcp.NewTool("get_media",
+			mcp.WithDescription("Get a media file's content by message ID. Returns the file as an embedded image/blob that AI assistants can view. The media must have been downloaded already (check download status via list_media)."),
+			mcp.WithString("message_id",
+				mcp.Required(),
+				mcp.Description("message ID of the media to retrieve (from list_media or get_chat_messages)"),
+			),
+		),
+		m.handleGetMedia,
+	)
 }

@@ -2,10 +2,14 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"whatsapp-mcp/paths"
 	"whatsapp-mcp/storage"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -642,4 +646,79 @@ func (m *MCPServer) handleListMedia(ctx context.Context, request mcp.CallToolReq
 	}
 
 	return mcp.NewToolResultText(result.String()), nil
+}
+
+// handleGetMedia handles the get_media tool request.
+func (m *MCPServer) handleGetMedia(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return mcp.NewToolResultError("message_id parameter is required"), nil
+	}
+
+	// get media metadata
+	meta, err := m.mediaStore.GetMediaMetadata(messageID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get media metadata: %v", err)), nil
+	}
+	if meta == nil {
+		return mcp.NewToolResultError(fmt.Sprintf("no media found for message ID: %s", messageID)), nil
+	}
+
+	// check download status
+	if meta.DownloadStatus != "downloaded" {
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"media not downloaded (status: %s). File: %s (%s, %s)",
+			meta.DownloadStatus, meta.FileName, meta.MimeType, formatFileSize(meta.FileSize),
+		)), nil
+	}
+
+	// sanitize and validate file path
+	cleanPath := filepath.Clean(meta.FilePath)
+	if strings.Contains(cleanPath, "..") {
+		return mcp.NewToolResultError("invalid file path"), nil
+	}
+
+	fullPath := paths.GetMediaPath(cleanPath)
+
+	// validate path is within media directory
+	mediaDir, err := filepath.Abs(paths.DataMediaDir)
+	if err != nil {
+		return mcp.NewToolResultError("failed to resolve media directory"), nil
+	}
+	absPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return mcp.NewToolResultError("failed to resolve file path"), nil
+	}
+	if !strings.HasPrefix(absPath, mediaDir+string(filepath.Separator)) && absPath != mediaDir {
+		return mcp.NewToolResultError("invalid file path: outside media directory"), nil
+	}
+
+	// read file
+	fileData, err := os.ReadFile(absPath)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to read media file: %v", err)), nil
+	}
+
+	encodedData := base64.StdEncoding.EncodeToString(fileData)
+
+	// build description text
+	desc := fmt.Sprintf("%s (%s, %s)", meta.FileName, meta.MimeType, formatFileSize(meta.FileSize))
+	if dims := formatDimensions(meta.Width, meta.Height); dims != "" {
+		desc += fmt.Sprintf(", %s", dims)
+	}
+	if dur := formatDuration(meta.Duration); dur != "" {
+		desc += fmt.Sprintf(", duration: %s", dur)
+	}
+
+	// return as image for visual types, or as resource for non-visual types
+	if strings.HasPrefix(meta.MimeType, "image/") {
+		return mcp.NewToolResultImage(desc, encodedData, meta.MimeType), nil
+	}
+
+	// for non-image types (audio, video, documents), return as embedded resource
+	return mcp.NewToolResultResource(desc, mcp.BlobResourceContents{
+		URI:      fmt.Sprintf("whatsapp://media/%s", messageID),
+		MIMEType: meta.MimeType,
+		Blob:     encodedData,
+	}), nil
 }

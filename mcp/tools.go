@@ -114,4 +114,21 @@ func (m *MCPServer) registerTools() {
 		),
 		m.handleGetMyInfo,
 	)
+
+	// 8. list media files
+	m.server.AddTool(
+		mcp.NewTool("list_media",
+			mcp.WithDescription("List media files (images, videos, audio, documents, stickers) from WhatsApp chats. Can filter by chat and/or media type. Returns metadata including filename, size, dimensions, and download status."),
+			mcp.WithString("chat_jid",
+				mcp.Description("filter by chat JID (optional - omit to search across all chats)"),
+			),
+			mcp.WithString("media_type",
+				mcp.Description("filter by media type: 'image', 'video', 'audio', 'document', or 'sticker' (optional - omit for all types)"),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("maximum number of results to return (default: 50, max: 200)"),
+			),
+		),
+		m.handleListMedia,
+	)
 }

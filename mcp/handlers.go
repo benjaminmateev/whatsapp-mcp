@@ -570,3 +570,76 @@ func (m *MCPServer) handleGetMyInfo(ctx context.Context, request mcp.CallToolReq
 
 	return mcp.NewToolResultText(result.String()), nil
 }
+
+// handleListMedia handles the list_media tool request.
+func (m *MCPServer) handleListMedia(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatJID := request.GetString("chat_jid", "")
+	mediaType := request.GetString("media_type", "")
+	limit := request.GetFloat("limit", 50.0)
+	if limit > 200 {
+		limit = 200
+	}
+
+	// map media_type to MIME prefix
+	var mimePrefix string
+	switch mediaType {
+	case "image":
+		mimePrefix = "image/"
+	case "video":
+		mimePrefix = "video/"
+	case "audio":
+		mimePrefix = "audio/"
+	case "document":
+		mimePrefix = "application/"
+	case "sticker":
+		mimePrefix = "image/webp"
+	case "":
+		mimePrefix = ""
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("invalid media_type '%s': must be one of: image, video, audio, document, sticker", mediaType)), nil
+	}
+
+	media, err := m.mediaStore.ListMedia(chatJID, mimePrefix, int(limit))
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to list media: %v", err)), nil
+	}
+
+	var result strings.Builder
+	fmt.Fprintf(&result, "Found %d media files", len(media))
+	if chatJID != "" {
+		fmt.Fprintf(&result, " in chat %s", chatJID)
+	}
+	if mediaType != "" {
+		fmt.Fprintf(&result, " (type: %s)", mediaType)
+	}
+	result.WriteString(":\n\n")
+
+	for i, meta := range media {
+		fmt.Fprintf(&result, "%d. %s\n", i+1, meta.FileName)
+		fmt.Fprintf(&result, "   Message ID: %s\n", meta.MessageID)
+		fmt.Fprintf(&result, "   Type: %s | Size: %s\n", meta.MimeType, formatFileSize(meta.FileSize))
+
+		if dims := formatDimensions(meta.Width, meta.Height); dims != "" {
+			fmt.Fprintf(&result, "   Dimensions: %s\n", dims)
+		}
+		if dur := formatDuration(meta.Duration); dur != "" {
+			fmt.Fprintf(&result, "   Duration: %s\n", dur)
+		}
+
+		switch meta.DownloadStatus {
+		case "downloaded":
+			result.WriteString("   Status: Downloaded\n")
+		case "pending":
+			result.WriteString("   Status: Not downloaded\n")
+		case "failed":
+			fmt.Fprintf(&result, "   Status: Download failed (%s)\n", meta.DownloadError)
+		case "expired":
+			result.WriteString("   Status: Expired\n")
+		case "skipped":
+			result.WriteString("   Status: Skipped (auto-download disabled for this type)\n")
+		}
+		result.WriteString("\n")
+	}
+
+	return mcp.NewToolResultText(result.String()), nil
+}

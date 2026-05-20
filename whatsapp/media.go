@@ -16,6 +16,7 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
 )
 
 // getInitialDownloadStatus determines the initial download status based on auto-download configuration.
@@ -355,6 +356,119 @@ func (c *Client) downloadMediaWithRetry(ctx context.Context, msg *waE2E.Message,
 
 	// combine all errors into a single message
 	return "", fmt.Errorf("download failed after %d attempts: %s", maxRetries, strings.Join(allErrors, "; "))
+}
+
+// DownloadMediaFromMetadata downloads media on demand using stored metadata fields.
+// It reconstructs a synthetic protobuf message from the DB metadata (media key, direct path,
+// file hashes) and passes it to whatsmeow's Download method.
+// Returns the relative file path on success and updates the database.
+func (c *Client) DownloadMediaFromMetadata(ctx context.Context, meta *storage.MediaMetadata) (string, error) {
+	if meta == nil {
+		return "", fmt.Errorf("nil metadata")
+	}
+	if len(meta.MediaKey) == 0 || meta.DirectPath == "" {
+		return "", fmt.Errorf("missing media key or direct path — cannot download")
+	}
+
+	// build a synthetic protobuf that satisfies whatsmeow's DownloadableMessage interface
+	fileLen := uint64(meta.FileSize)
+	var downloadable any
+
+	switch {
+	case strings.HasPrefix(meta.MimeType, "image/") && !strings.Contains(meta.MimeType, "webp"):
+		downloadable = &waE2E.ImageMessage{
+			DirectPath:    proto.String(meta.DirectPath),
+			MediaKey:      meta.MediaKey,
+			FileSHA256:    meta.FileSHA256,
+			FileEncSHA256: meta.FileEncSHA256,
+			FileLength:    &fileLen,
+			Mimetype:      proto.String(meta.MimeType),
+		}
+	case strings.HasPrefix(meta.MimeType, "video/"):
+		downloadable = &waE2E.VideoMessage{
+			DirectPath:    proto.String(meta.DirectPath),
+			MediaKey:      meta.MediaKey,
+			FileSHA256:    meta.FileSHA256,
+			FileEncSHA256: meta.FileEncSHA256,
+			FileLength:    &fileLen,
+			Mimetype:      proto.String(meta.MimeType),
+		}
+	case strings.HasPrefix(meta.MimeType, "audio/"):
+		downloadable = &waE2E.AudioMessage{
+			DirectPath:    proto.String(meta.DirectPath),
+			MediaKey:      meta.MediaKey,
+			FileSHA256:    meta.FileSHA256,
+			FileEncSHA256: meta.FileEncSHA256,
+			FileLength:    &fileLen,
+			Mimetype:      proto.String(meta.MimeType),
+		}
+	case meta.MimeType == "image/webp":
+		downloadable = &waE2E.StickerMessage{
+			DirectPath:    proto.String(meta.DirectPath),
+			MediaKey:      meta.MediaKey,
+			FileSHA256:    meta.FileSHA256,
+			FileEncSHA256: meta.FileEncSHA256,
+			FileLength:    &fileLen,
+			Mimetype:      proto.String(meta.MimeType),
+		}
+	default:
+		downloadable = &waE2E.DocumentMessage{
+			DirectPath:    proto.String(meta.DirectPath),
+			MediaKey:      meta.MediaKey,
+			FileSHA256:    meta.FileSHA256,
+			FileEncSHA256: meta.FileEncSHA256,
+			FileLength:    &fileLen,
+			Mimetype:      proto.String(meta.MimeType),
+		}
+	}
+
+	// generate file path
+	filePath, err := c.generateMediaFilePath(meta)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate file path: %w", err)
+	}
+
+	// create directory
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// download using whatsmeow
+	var data []byte
+	switch d := downloadable.(type) {
+	case *waE2E.ImageMessage:
+		data, err = c.wa.Download(ctx, d)
+	case *waE2E.VideoMessage:
+		data, err = c.wa.Download(ctx, d)
+	case *waE2E.AudioMessage:
+		data, err = c.wa.Download(ctx, d)
+	case *waE2E.DocumentMessage:
+		data, err = c.wa.Download(ctx, d)
+	case *waE2E.StickerMessage:
+		data, err = c.wa.Download(ctx, d)
+	}
+	if err != nil {
+		c.mediaStore.UpdateDownloadStatus(meta.MessageID, "failed", nil, err)
+		return "", fmt.Errorf("download failed: %w", err)
+	}
+
+	// write file
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// compute relative path
+	relPath, err := filepath.Rel(c.mediaConfig.StoragePath, filePath)
+	if err != nil {
+		os.Remove(filePath)
+		return "", fmt.Errorf("failed to compute relative path: %w", err)
+	}
+
+	// update database
+	c.mediaStore.UpdateDownloadStatus(meta.MessageID, "downloaded", &relPath, nil)
+
+	c.log.Infof("On-demand download: %s -> %s (%d bytes)", meta.MessageID, relPath, len(data))
+	return relPath, nil
 }
 
 // intPtr returns a pointer to the given integer value.

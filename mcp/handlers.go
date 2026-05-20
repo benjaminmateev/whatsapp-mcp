@@ -664,12 +664,21 @@ func (m *MCPServer) handleGetMedia(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError(fmt.Sprintf("no media found for message ID: %s", messageID)), nil
 	}
 
-	// check download status
+	// if not downloaded yet, try on-demand download
 	if meta.DownloadStatus != "downloaded" {
-		return mcp.NewToolResultError(fmt.Sprintf(
-			"media not downloaded (status: %s). File: %s (%s, %s)",
-			meta.DownloadStatus, meta.FileName, meta.MimeType, formatFileSize(meta.FileSize),
-		)), nil
+		if meta.DownloadStatus == "expired" {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"media expired and can no longer be downloaded. File: %s (%s, %s)",
+				meta.FileName, meta.MimeType, formatFileSize(meta.FileSize),
+			)), nil
+		}
+
+		relPath, err := m.wa.DownloadMediaFromMetadata(ctx, meta)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to download media: %v", err)), nil
+		}
+		meta.FilePath = relPath
+		meta.DownloadStatus = "downloaded"
 	}
 
 	// sanitize and validate file path

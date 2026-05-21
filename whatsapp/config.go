@@ -18,7 +18,7 @@ type MediaConfig struct {
 // LoadMediaConfig loads media configuration from environment variables.
 func LoadMediaConfig() MediaConfig {
 	cfg := MediaConfig{
-		AutoDownloadEnabled:     config.GetEnvBool("MEDIA_AUTO_DOWNLOAD_ENABLED", true),
+		AutoDownloadEnabled:     config.GetEnvBool("MEDIA_AUTO_DOWNLOAD_ENABLED", false),
 		AutoDownloadFromHistory: config.GetEnvBool("MEDIA_AUTO_DOWNLOAD_FROM_HISTORY", false),
 		AutoDownloadMaxSize:     config.GetEnvInt64("MEDIA_AUTO_DOWNLOAD_MAX_SIZE_MB", 25) * 1024 * 1024,
 		StoragePath:             paths.DataMediaDir,

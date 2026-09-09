@@ -89,20 +89,26 @@ graph TB
     end
 
     subgraph "WhatsApp MCP Server"
-        B[MCP HTTP Server :8080]
+        B[HTTP Server :8080]
         C[MCP Layer]
+        R[REST API /api/v1]
+        S[Service Layer<br/>validation + business logic]
         D[WhatsApp Client]
         E[(SQLite Database)]
 
         B -->|/mcp endpoint| C
+        B -->|/api/v1| R
         B -->|/health| B
+
+        C --> S
+        R --> S
 
         C -->|Tools| C1[list_chats<br/>get_chat_messages<br/>search_messages<br/>find_chat<br/>send_message<br/>load_more_messages<br/>get_my_info]
         C -->|Prompts| C2[search_person_messages<br/>get_context_about_person<br/>analyze_conversation<br/>search_keyword]
         C -->|Resources| C3[Workflow Guides<br/>Search Patterns<br/>JID Format]
 
-        C1 -.->|read/write| E
-        C1 -.->|send| D
+        S -.->|read/write| E
+        S -.->|send| D
 
         D -->|sync messages| E
         D <-->|WhatsApp Protocol| F
@@ -113,6 +119,7 @@ graph TB
     end
 
     A <-->|Streamable HTTP<br/>API Key Auth| B
+    G[Any HTTP Client<br/>scripts, automation, apps] <-->|JSON REST<br/>Bearer Auth| B
 
     style A fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#000
     style B fill:#F5A623,stroke:#C67E1B,stroke-width:2px,color:#000
@@ -123,6 +130,9 @@ graph TB
     style D fill:#50E3C2,stroke:#3AAA94,stroke-width:2px,color:#000
     style E fill:#E85D75,stroke:#B5475C,stroke-width:2px,color:#fff
     style F fill:#25D366,stroke:#1DA851,stroke-width:2px,color:#000
+    style G fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#000
+    style R fill:#9013FE,stroke:#6B0FC7,stroke-width:2px,color:#fff
+    style S fill:#F8E71C,stroke:#C7B500,stroke-width:2px,color:#000
 ```
 
 ### How It Works
@@ -252,6 +262,61 @@ Existing clients using `/mcp/{key}` continue to work unchanged.
     }
   }
 }
+```
+
+## 🌐 REST API
+
+For clients that don't speak MCP — automation tools, scripts, mobile apps, n8n —
+the same functionality is available as plain JSON under `/api/v1`.
+
+All endpoints require a Bearer token:
+
+```bash
+curl -H "Authorization: Bearer $MCP_API_KEY" http://localhost:8080/api/v1/chats
+```
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/chats?limit=50` | List chats, most recent first |
+| `GET` | `/api/v1/chats/search?q=alice` | Find chats by name or JID (supports `*`, `?`, `[abc]`) |
+| `GET` | `/api/v1/chats/{jid}/messages` | Message history (`limit`, `offset`, `before`, `after`, `from`) |
+| `POST` | `/api/v1/chats/{jid}/messages` | Send a message — body: `{"text": "hello"}` |
+| `POST` | `/api/v1/chats/{jid}/sync` | Fetch older history — body: `{"count": 50, "wait_for_sync": true}` |
+| `GET` | `/api/v1/messages/search?q=invoice` | Search messages (`q`, `from`, `limit`) |
+| `GET` | `/api/v1/media?chat_jid=&type=image` | List media (`type`: image, video, audio, document, sticker) |
+| `GET` | `/api/v1/media/{message_id}` | Download the raw file bytes |
+| `GET` | `/api/v1/me` | Your WhatsApp profile |
+
+Timestamps accept ISO 8601 (`2026-01-02T15:04:05`, `2026-01-02 15:04:05`, or `2026-01-02`)
+and are interpreted in the server's `TIMEZONE`.
+
+### Responses
+
+Collections are wrapped in a named key:
+
+```json
+{
+  "chats": [
+    {
+      "jid": "5511999999999@s.whatsapp.net",
+      "name": "Alice",
+      "is_group": false,
+      "last_message_time": "2026-01-02T15:04:05Z",
+      "unread_count": 3
+    }
+  ]
+}
+```
+
+`GET /api/v1/media/{message_id}` returns the file itself with its real
+`Content-Type`, downloading on demand if it isn't cached yet. Every other
+endpoint returns JSON.
+
+Errors use standard status codes with a JSON body — `400` invalid parameters,
+`401` bad or missing token, `404` unknown route or resource, `500` server error:
+
+```json
+{"error": "invalid input: chat_jid parameter is required"}
 ```
 
 ## 🎨 Usage Examples

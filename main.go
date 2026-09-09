@@ -35,8 +35,10 @@ import (
 	"syscall"
 	"time"
 
+	"whatsapp-mcp/api"
 	"whatsapp-mcp/mcp"
 	"whatsapp-mcp/paths"
+	"whatsapp-mcp/service"
 	"whatsapp-mcp/storage"
 	"whatsapp-mcp/webhook"
 	"whatsapp-mcp/whatsapp"
@@ -179,8 +181,11 @@ func main() {
 		log.Println("Connected to WhatsApp")
 	}
 
+	// shared business logic behind both the MCP and REST transports
+	svc := service.New(waClient, store, mediaStore, timezone)
+
 	// initialize MCP server
-	mcpServer := mcp.NewMCPServer(waClient, store, mediaStore, timezone)
+	mcpServer := mcp.NewMCPServer(svc, waClient, store, mediaStore, timezone)
 	log.Println("MCP server initialized")
 
 	mux := http.NewServeMux()
@@ -235,6 +240,11 @@ func main() {
 		streamableServer.ServeHTTP(w, r)
 	})
 
+	// REST API for non-MCP clients
+	restAPI := api.New(svc, apiKey, log.New(os.Stdout, "[API] ", log.LstdFlags))
+	mux.Handle("/api/v1/", restAPI.Routes())
+	log.Println("REST API initialized")
+
 	// Webhook management API
 	webhookHandler := webhook.NewHandler(webhookManager, webhookStore, apiKey)
 
@@ -273,6 +283,7 @@ func main() {
 		log.Printf("Starting server on http://%s:%s", host, httpPort)
 		log.Printf("- Health check: http://%s:%s/health", host, httpPort)
 		log.Printf("- MCP endpoint: http://%s:%s/mcp/{API_KEY}", host, httpPort)
+		log.Printf("- REST API:     http://%s:%s/api/v1/", host, httpPort)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}

@@ -4,6 +4,7 @@ import (
 	"log"
 	"time"
 
+	"whatsapp-mcp/service"
 	"whatsapp-mcp/storage"
 	"whatsapp-mcp/whatsapp"
 
@@ -13,6 +14,7 @@ import (
 // MCPServer represents an MCP server instance for WhatsApp integration.
 type MCPServer struct {
 	server     *server.MCPServer
+	svc        *service.Service
 	wa         *whatsapp.Client
 	store      *storage.MessageStore
 	mediaStore *storage.MediaStore
@@ -20,8 +22,8 @@ type MCPServer struct {
 	timezone   *time.Location
 }
 
-// NewMCPServer creates a new MCP server with the provided WhatsApp client and storage.
-func NewMCPServer(wa *whatsapp.Client, store *storage.MessageStore, mediaStore *storage.MediaStore, timezone *time.Location) *MCPServer {
+// NewMCPServer creates a new MCP server over the shared service layer.
+func NewMCPServer(svc *service.Service, wa *whatsapp.Client, store *storage.MessageStore, mediaStore *storage.MediaStore, timezone *time.Location) *MCPServer {
 	s := server.NewMCPServer(
 		"WhatsApp MCP",
 		"1.0.0",
@@ -41,6 +43,7 @@ Use prompts for common workflows or resources for detailed guides.`),
 
 	m := &MCPServer{
 		server:     s,
+		svc:        svc,
 		wa:         wa,
 		store:      store,
 		mediaStore: mediaStore,

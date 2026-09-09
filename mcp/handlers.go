@@ -2,10 +2,14 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"whatsapp-mcp/paths"
 	"whatsapp-mcp/storage"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -569,4 +573,161 @@ func (m *MCPServer) handleGetMyInfo(ctx context.Context, request mcp.CallToolReq
 	}
 
 	return mcp.NewToolResultText(result.String()), nil
+}
+
+// handleListMedia handles the list_media tool request.
+func (m *MCPServer) handleListMedia(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatJID := request.GetString("chat_jid", "")
+	mediaType := request.GetString("media_type", "")
+	limit := request.GetFloat("limit", 50.0)
+	if limit > 200 {
+		limit = 200
+	}
+
+	// map media_type to MIME prefix
+	var mimePrefix string
+	switch mediaType {
+	case "image":
+		mimePrefix = "image/"
+	case "video":
+		mimePrefix = "video/"
+	case "audio":
+		mimePrefix = "audio/"
+	case "document":
+		mimePrefix = "application/"
+	case "sticker":
+		mimePrefix = "image/webp"
+	case "":
+		mimePrefix = ""
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("invalid media_type '%s': must be one of: image, video, audio, document, sticker", mediaType)), nil
+	}
+
+	media, err := m.mediaStore.ListMedia(chatJID, mimePrefix, int(limit))
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to list media: %v", err)), nil
+	}
+
+	var result strings.Builder
+	fmt.Fprintf(&result, "Found %d media files", len(media))
+	if chatJID != "" {
+		fmt.Fprintf(&result, " in chat %s", chatJID)
+	}
+	if mediaType != "" {
+		fmt.Fprintf(&result, " (type: %s)", mediaType)
+	}
+	result.WriteString(":\n\n")
+
+	for i, meta := range media {
+		fmt.Fprintf(&result, "%d. %s\n", i+1, meta.FileName)
+		fmt.Fprintf(&result, "   Message ID: %s\n", meta.MessageID)
+		fmt.Fprintf(&result, "   Type: %s | Size: %s\n", meta.MimeType, formatFileSize(meta.FileSize))
+
+		if dims := formatDimensions(meta.Width, meta.Height); dims != "" {
+			fmt.Fprintf(&result, "   Dimensions: %s\n", dims)
+		}
+		if dur := formatDuration(meta.Duration); dur != "" {
+			fmt.Fprintf(&result, "   Duration: %s\n", dur)
+		}
+
+		switch meta.DownloadStatus {
+		case "downloaded":
+			result.WriteString("   Status: Downloaded\n")
+		case "pending":
+			result.WriteString("   Status: Not downloaded\n")
+		case "failed":
+			fmt.Fprintf(&result, "   Status: Download failed (%s)\n", meta.DownloadError)
+		case "expired":
+			result.WriteString("   Status: Expired\n")
+		case "skipped":
+			result.WriteString("   Status: Skipped (auto-download disabled for this type)\n")
+		}
+		result.WriteString("\n")
+	}
+
+	return mcp.NewToolResultText(result.String()), nil
+}
+
+// handleGetMedia handles the get_media tool request.
+func (m *MCPServer) handleGetMedia(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return mcp.NewToolResultError("message_id parameter is required"), nil
+	}
+
+	// get media metadata
+	meta, err := m.mediaStore.GetMediaMetadata(messageID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get media metadata: %v", err)), nil
+	}
+	if meta == nil {
+		return mcp.NewToolResultError(fmt.Sprintf("no media found for message ID: %s", messageID)), nil
+	}
+
+	// if not downloaded yet, try on-demand download
+	if meta.DownloadStatus != "downloaded" {
+		if meta.DownloadStatus == "expired" {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"media expired and can no longer be downloaded. File: %s (%s, %s)",
+				meta.FileName, meta.MimeType, formatFileSize(meta.FileSize),
+			)), nil
+		}
+
+		relPath, err := m.wa.DownloadMediaFromMetadata(ctx, meta)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to download media: %v", err)), nil
+		}
+		meta.FilePath = relPath
+		meta.DownloadStatus = "downloaded"
+	}
+
+	// sanitize and validate file path
+	cleanPath := filepath.Clean(meta.FilePath)
+	if strings.Contains(cleanPath, "..") {
+		return mcp.NewToolResultError("invalid file path"), nil
+	}
+
+	fullPath := paths.GetMediaPath(cleanPath)
+
+	// validate path is within media directory
+	mediaDir, err := filepath.Abs(paths.DataMediaDir)
+	if err != nil {
+		return mcp.NewToolResultError("failed to resolve media directory"), nil
+	}
+	absPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return mcp.NewToolResultError("failed to resolve file path"), nil
+	}
+	if !strings.HasPrefix(absPath, mediaDir+string(filepath.Separator)) && absPath != mediaDir {
+		return mcp.NewToolResultError("invalid file path: outside media directory"), nil
+	}
+
+	// read file
+	fileData, err := os.ReadFile(absPath)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to read media file: %v", err)), nil
+	}
+
+	encodedData := base64.StdEncoding.EncodeToString(fileData)
+
+	// build description text
+	desc := fmt.Sprintf("%s (%s, %s)", meta.FileName, meta.MimeType, formatFileSize(meta.FileSize))
+	if dims := formatDimensions(meta.Width, meta.Height); dims != "" {
+		desc += fmt.Sprintf(", %s", dims)
+	}
+	if dur := formatDuration(meta.Duration); dur != "" {
+		desc += fmt.Sprintf(", duration: %s", dur)
+	}
+
+	// return as image for visual types, or as resource for non-visual types
+	if strings.HasPrefix(meta.MimeType, "image/") {
+		return mcp.NewToolResultImage(desc, encodedData, meta.MimeType), nil
+	}
+
+	// for non-image types (audio, video, documents), return as embedded resource
+	return mcp.NewToolResultResource(desc, mcp.BlobResourceContents{
+		URI:      fmt.Sprintf("whatsapp://media/%s", messageID),
+		MIMEType: meta.MimeType,
+		Blob:     encodedData,
+	}), nil
 }

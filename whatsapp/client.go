@@ -3,7 +3,9 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 	"whatsapp-mcp/paths"
@@ -215,6 +217,62 @@ func (c *Client) SendTextMessage(ctx context.Context, chatJID string, text strin
 		Timestamp:   resp.Timestamp,
 		IsFromMe:    true,
 		MessageType: "text",
+	})
+
+	return nil
+}
+
+// SendImageMessage uploads an image and sends it to a chat with an optional caption.
+func (c *Client) SendImageMessage(ctx context.Context, chatJID string, imagePath string, caption string) error {
+	targetJID, err := types.ParseJID(chatJID)
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(imagePath)
+	if err != nil {
+		return fmt.Errorf("failed to read image: %w", err)
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("image file is empty")
+	}
+
+	mimeType := http.DetectContentType(data)
+	if !strings.HasPrefix(mimeType, "image/") {
+		return fmt.Errorf("file is not an image (detected %s)", mimeType)
+	}
+
+	uploaded, err := c.wa.Upload(ctx, data, whatsmeow.MediaImage)
+	if err != nil {
+		return fmt.Errorf("failed to upload image: %w", err)
+	}
+
+	img := &waE2E.ImageMessage{
+		Mimetype:      proto.String(mimeType),
+		URL:           proto.String(uploaded.URL),
+		DirectPath:    proto.String(uploaded.DirectPath),
+		MediaKey:      uploaded.MediaKey,
+		FileEncSHA256: uploaded.FileEncSHA256,
+		FileSHA256:    uploaded.FileSHA256,
+		FileLength:    proto.Uint64(uploaded.FileLength),
+	}
+	if caption != "" {
+		img.Caption = proto.String(caption)
+	}
+
+	resp, err := c.wa.SendMessage(ctx, targetJID, &waE2E.Message{ImageMessage: img})
+	if err != nil {
+		return err
+	}
+
+	c.store.SaveMessage(storage.Message{
+		ID:          resp.ID,
+		ChatJID:     chatJID,
+		SenderJID:   resp.Sender.String(),
+		Text:        caption,
+		Timestamp:   resp.Timestamp,
+		IsFromMe:    true,
+		MessageType: "image",
 	})
 
 	return nil

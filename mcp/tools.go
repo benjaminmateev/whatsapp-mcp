@@ -89,6 +89,39 @@ func (m *MCPServer) registerTools() {
 		m.handleSendMessage,
 	)
 
+	// 5b. send image
+	m.server.AddTool(
+		mcp.NewTool("send_image",
+			mcp.WithDescription("Send an image to a WhatsApp chat (DM or group), with an optional caption. The image must be a local file readable by the server."),
+			mcp.WithString("chat_jid",
+				mcp.Required(),
+				mcp.Description("recipient chat JID from find_chat or list_chats"),
+			),
+			mcp.WithString("image_path",
+				mcp.Required(),
+				mcp.Description("absolute path to the image file on the server's filesystem"),
+			),
+			mcp.WithString("caption",
+				mcp.Description("optional caption text sent together with the image"),
+			),
+		),
+		m.handleSendImage,
+	)
+	// 5c. send text with a rendered link preview
+	m.server.AddTool(
+		mcp.NewTool("send_link",
+			mcp.WithDescription("Send a text message whose first URL carries a rendered link preview (title, description, thumbnail), the way the WhatsApp app does. Use instead of send_message when the text contains a link you want previewed."),
+			mcp.WithString("chat_jid",
+				mcp.Required(),
+				mcp.Description("recipient chat JID from find_chat or list_chats"),
+			),
+			mcp.WithString("text",
+				mcp.Required(),
+				mcp.Description("message text; the first URL in it gets the preview card"),
+			),
+		),
+		m.handleSendLink,
+	)
 	// 6. load more messages on-demand
 	m.server.AddTool(
 		mcp.NewTool("load_more_messages",

@@ -441,6 +441,54 @@ func (m *MCPServer) handleSendMessage(ctx context.Context, request mcp.CallToolR
 	return mcp.NewToolResultText(fmt.Sprintf("Message sent successfully to %s", chatJID)), nil
 }
 
+// handleSendImage handles the send_image tool request.
+func (m *MCPServer) handleSendImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatJID, err := request.RequireString("chat_jid")
+	if err != nil {
+		return mcp.NewToolResultError("chat_jid parameter is required"), nil
+	}
+
+	imagePath, err := request.RequireString("image_path")
+	if err != nil {
+		return mcp.NewToolResultError("image_path parameter is required"), nil
+	}
+
+	caption := request.GetString("caption", "")
+
+	if !m.wa.IsLoggedIn() {
+		return mcp.NewToolResultError("WhatsApp is not connected"), nil
+	}
+
+	if err := m.wa.SendImageMessage(ctx, chatJID, imagePath, caption); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to send image: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Image sent successfully to %s", chatJID)), nil
+}
+
+// handleSendLink handles the send_link tool request.
+func (m *MCPServer) handleSendLink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatJID, err := request.RequireString("chat_jid")
+	if err != nil {
+		return mcp.NewToolResultError("chat_jid parameter is required"), nil
+	}
+
+	text, err := request.RequireString("text")
+	if err != nil {
+		return mcp.NewToolResultError("text parameter is required"), nil
+	}
+
+	if !m.wa.IsLoggedIn() {
+		return mcp.NewToolResultError("WhatsApp is not connected"), nil
+	}
+
+	if err := m.wa.SendLinkMessage(ctx, chatJID, text); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to send link: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Link message sent successfully to %s", chatJID)), nil
+}
+
 // handleLoadMoreMessages handles the load_more_messages tool request.
 func (m *MCPServer) handleLoadMoreMessages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// get required chat_jid

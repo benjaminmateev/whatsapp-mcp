@@ -141,7 +141,7 @@ graph TB
 
 ### Prerequisites
 
-- **Go 1.25.5+** (for local setup) or **Docker** (recommended)
+- **Go 1.26.0+** (for local setup) or **Docker** (recommended)
 - **WhatsApp account** (will be linked via QR code)
 - **MCP-compatible AI client** (Claude, Cursor, etc.)
 
@@ -179,9 +179,10 @@ graph TB
 
 1. **Install dependencies**
    ```bash
-   git clone https://github.com/felipeadeildo/whatsapp-mcp
+   git clone https://github.com/benjaminmateev/whatsapp-mcp
    cd whatsapp-mcp
-   go mod download
+   go mod download    # pulls whatsmeow, mcp-go, golang.org/x/image
+   go build .         # optional: verify it compiles before first run
    ```
 
 2. **Configure environment**
@@ -195,7 +196,16 @@ graph TB
    go run main.go
    ```
 
-4. **Link WhatsApp** (scan QR code shown in terminal)
+4. **Link WhatsApp** (scan the QR code shown in the terminal)
+
+   Each installation links **its own** WhatsApp account. The session lives in
+   `data/` and `.env`, both gitignored, so nothing about an existing install
+   travels with the repository. Pulling this code never gives you access to
+   anyone else's messages, and running it means scanning the QR with your own
+   phone: WhatsApp → Settings → Linked Devices → Link a Device.
+
+   The linked session persists across restarts. Delete `data/` to unlink and
+   start over.
 
 ## 🔌 MCP Integration
 
@@ -302,6 +312,16 @@ AI: [Uses search_keyword prompt]
 
 Everything an agent needs to send text, images and link previews. Read this before
 calling any `send_*` tool.
+
+### Before anything: the server must be linked
+
+Every `send_*` call acts as the WhatsApp account this server instance is linked to.
+A fresh clone is linked to nothing — run it once and scan the QR code (see Quick
+Start). `get_my_info` confirms which account is active; if it errors with "WhatsApp
+is not connected", the server is running but not linked, and no send will work.
+
+Sessions are per-install and stored in gitignored `data/`. Cloning this repo never
+inherits someone else's account.
 
 ### The three send tools
 

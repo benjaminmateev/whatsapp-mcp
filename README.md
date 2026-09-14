@@ -59,8 +59,12 @@ This server implements the full MCP specification with:
 | `search_messages` | Search across all chats | Pattern matching, wildcards |
 | `find_chat` | Locate chat by name | Fuzzy search support |
 | `send_message` | Send WhatsApp messages | To any chat or group |
+| `send_image` | Send an image + caption | Local file, uploaded to WhatsApp |
+| `send_link` | Send text with a link preview | Fetches og: tags, builds thumbnail |
 | `load_more_messages` | Fetch older history | On-demand from servers |
 | `get_my_info` | Get your profile info | JID, name, status, picture |
+| `list_media` | List media in chats | Filter by chat and type |
+| `get_media` | Read a media file | Returns image/blob to the client |
 
 #### Prompts
 
@@ -97,7 +101,7 @@ graph TB
         B -->|/mcp endpoint| C
         B -->|/health| B
 
-        C -->|Tools| C1[list_chats<br/>get_chat_messages<br/>search_messages<br/>find_chat<br/>send_message<br/>load_more_messages<br/>get_my_info]
+        C -->|Tools| C1[list_chats<br/>get_chat_messages<br/>search_messages<br/>find_chat<br/>send_message<br/>send_image<br/>send_link<br/>load_more_messages<br/>get_my_info<br/>list_media<br/>get_media]
         C -->|Prompts| C2[search_person_messages<br/>get_context_about_person<br/>analyze_conversation<br/>search_keyword]
         C -->|Resources| C3[Workflow Guides<br/>Search Patterns<br/>JID Format]
 
@@ -294,6 +298,76 @@ AI: [Uses search_keyword prompt]
     → Orders by relevance/date
 ```
 
+## 🤖 Sending Messages (for AI agents)
+
+Everything an agent needs to send text, images and link previews. Read this before
+calling any `send_*` tool.
+
+### The three send tools
+
+| Tool | Arguments | Use when |
+|------|-----------|----------|
+| `send_message` | `chat_jid`, `text` | Plain text. A URL in it arrives **without** a preview card. |
+| `send_image` | `chat_jid`, `image_path`, `caption?` | Sending a picture. Caption rides along in the same message. |
+| `send_link` | `chat_jid`, `text` | The text contains a URL you want rendered as a preview card. |
+
+Always resolve `chat_jid` with `find_chat` or `list_chats` first — never construct one
+by hand. A JID looks like `4915112345678@s.whatsapp.net` (DM) or `...@g.us` (group).
+
+### `image_path` is a path on the SERVER
+
+`send_image` reads the file from the filesystem of the machine running this server, not
+from the machine the MCP client runs on. If they are different hosts, copy the file over
+first:
+
+```bash
+scp poster.png user@server:/path/to/outbox/
+```
+
+Then pass the absolute server-side path: `/path/to/outbox/poster.png`.
+
+The file must be a real image — the server sniffs the MIME type from the bytes and
+rejects anything that is not `image/*`.
+
+### Why `send_link` exists
+
+WhatsApp link previews are built by the **sending** client, not the receiving one. The
+official app fetches the page, renders a thumbnail, and ships that as message metadata.
+A library that sends raw text therefore produces a bare blue URL on the recipient's
+screen, no matter how long they wait.
+
+`send_link` does what the app does:
+
+1. Finds the first URL in `text`
+2. Fetches the page (512 KB cap, 20 s timeout, browser-ish User-Agent)
+3. Parses `og:title`, `og:description`, `og:image`
+4. Downloads and scales that image to a ≤320 px JPEG (~20 KB)
+5. Attaches all of it to an `ExtendedTextMessage`
+
+**Only the first URL gets a card.** Order the text deliberately: whichever link you put
+first owns the preview. If the page cannot be fetched, the message still sends — just
+without a card, never an error.
+
+Some sites (Instagram among them) serve og: tags to scrapers but block hotlinking of the
+image itself. The fetch happens server-side at send time, so this works, but it also
+means every `send_link` call makes two outbound HTTP requests.
+
+### Bulk sending
+
+If an agent is sending to many recipients, WhatsApp's spam heuristics matter more than
+the API:
+
+- **Vary the text.** Identical messages to dozens of numbers is the strongest signal
+  there is. Rotate wording and personalise with the recipient's name.
+- **Space the sends.** Randomised gaps of 45–90 s read as a human working through a
+  list; a tight loop does not.
+- **Log as you go.** Append each `chat_jid` to a file immediately after it succeeds, so
+  a crash or re-run never double-sends.
+- **Avoid identical URLs at scale.** The same link in 100 identical messages is a
+  classic bulk-spam pattern.
+
+None of this is enforced by the server. It is the caller's job.
+
 ## 📊 Data & Privacy
 
 ### Local Storage
@@ -320,6 +394,9 @@ All data is stored in `./data/`:
 - [x] Timezone support
 - [x] On-demand message loading from servers
 - [x] Docker deployment (with healthcheck!)
+- [x] Media read: list and fetch images, video, audio, documents
+- [x] Outbound media: `send_image` with caption
+- [x] Server-side link previews: `send_link` (title, description, thumbnail)
 
 ### 🚧 Planned
 

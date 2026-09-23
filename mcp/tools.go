@@ -107,6 +107,24 @@ func (m *MCPServer) registerTools() {
 		),
 		m.handleSendImage,
 	)
+	// 5b2. send video
+	m.server.AddTool(
+		mcp.NewTool("send_video",
+			mcp.WithDescription("Send an MP4 video to a WhatsApp chat (DM or group), with an optional caption. The video must be a local file readable by the server. Duration, dimensions and a poster frame are filled in with ffprobe/ffmpeg when installed."),
+			mcp.WithString("chat_jid",
+				mcp.Required(),
+				mcp.Description("recipient chat JID from find_chat or list_chats"),
+			),
+			mcp.WithString("video_path",
+				mcp.Required(),
+				mcp.Description("absolute path to the MP4 file on the server's filesystem"),
+			),
+			mcp.WithString("caption",
+				mcp.Description("optional caption text sent together with the video"),
+			),
+		),
+		m.handleSendVideo,
+	)
 	// 5c. send text with a rendered link preview
 	m.server.AddTool(
 		mcp.NewTool("send_link",

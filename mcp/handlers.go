@@ -466,6 +466,31 @@ func (m *MCPServer) handleSendImage(ctx context.Context, request mcp.CallToolReq
 	return mcp.NewToolResultText(fmt.Sprintf("Image sent successfully to %s", chatJID)), nil
 }
 
+// handleSendVideo handles the send_video tool request.
+func (m *MCPServer) handleSendVideo(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatJID, err := request.RequireString("chat_jid")
+	if err != nil {
+		return mcp.NewToolResultError("chat_jid parameter is required"), nil
+	}
+
+	videoPath, err := request.RequireString("video_path")
+	if err != nil {
+		return mcp.NewToolResultError("video_path parameter is required"), nil
+	}
+
+	caption := request.GetString("caption", "")
+
+	if !m.wa.IsLoggedIn() {
+		return mcp.NewToolResultError("WhatsApp is not connected"), nil
+	}
+
+	if err := m.wa.SendVideoMessage(ctx, chatJID, videoPath, caption); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to send video: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Video sent successfully to %s", chatJID)), nil
+}
+
 // handleSendLink handles the send_link tool request.
 func (m *MCPServer) handleSendLink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	chatJID, err := request.RequireString("chat_jid")

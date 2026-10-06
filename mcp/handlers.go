@@ -466,6 +466,33 @@ func (m *MCPServer) handleSendImage(ctx context.Context, request mcp.CallToolReq
 	return mcp.NewToolResultText(fmt.Sprintf("Image sent successfully to %s", chatJID)), nil
 }
 
+// handleSendReaction handles the send_reaction tool request.
+func (m *MCPServer) handleSendReaction(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatJID, err := request.RequireString("chat_jid")
+	if err != nil {
+		return mcp.NewToolResultError("chat_jid parameter is required"), nil
+	}
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return mcp.NewToolResultError("message_id parameter is required"), nil
+	}
+	senderJID, err := request.RequireString("sender_jid")
+	if err != nil {
+		return mcp.NewToolResultError("sender_jid parameter is required"), nil
+	}
+	emoji := request.GetString("emoji", "")
+
+	if !m.wa.IsLoggedIn() {
+		return mcp.NewToolResultError("WhatsApp is not connected"), nil
+	}
+
+	if err := m.wa.SendReaction(ctx, chatJID, senderJID, messageID, emoji); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to send reaction: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Reaction sent to %s in %s", messageID, chatJID)), nil
+}
+
 // handleSendLink handles the send_link tool request.
 func (m *MCPServer) handleSendLink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	chatJID, err := request.RequireString("chat_jid")

@@ -107,6 +107,27 @@ func (m *MCPServer) registerTools() {
 		),
 		m.handleSendImage,
 	)
+	// 5b3. send any file as a document
+	m.server.AddTool(
+		mcp.NewTool("send_document",
+			mcp.WithDescription("Send a file (PDF, Word, Excel, PowerPoint, zip, anything) as a WhatsApp document, with an optional caption. The recipient sees the file name and a download button. The file must be a local file readable by the server, up to 100 MB."),
+			mcp.WithString("chat_jid",
+				mcp.Required(),
+				mcp.Description("recipient chat JID from find_chat or list_chats"),
+			),
+			mcp.WithString("file_path",
+				mcp.Required(),
+				mcp.Description("absolute path to the file on the server's filesystem"),
+			),
+			mcp.WithString("caption",
+				mcp.Description("optional caption text sent together with the document"),
+			),
+			mcp.WithString("file_name",
+				mcp.Description("optional name the recipient sees, e.g. 'Q3 report.pdf'; defaults to the file's own name"),
+			),
+		),
+		m.handleSendDocument,
+	)
 	// 5c. send text with a rendered link preview
 	m.server.AddTool(
 		mcp.NewTool("send_link",

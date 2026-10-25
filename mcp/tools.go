@@ -122,6 +122,28 @@ func (m *MCPServer) registerTools() {
 		),
 		m.handleSendLink,
 	)
+	// 5d. react to a message
+	m.server.AddTool(
+		mcp.NewTool("send_reaction",
+			mcp.WithDescription("React to an existing message with an emoji, the way a long-press does in the app. An empty emoji removes your earlier reaction."),
+			mcp.WithString("chat_jid",
+				mcp.Required(),
+				mcp.Description("chat JID the message is in"),
+			),
+			mcp.WithString("message_id",
+				mcp.Required(),
+				mcp.Description("ID of the message to react to (from get_chat_messages)"),
+			),
+			mcp.WithString("sender_jid",
+				mcp.Required(),
+				mcp.Description("JID of the message's AUTHOR (in a group, the participant who sent it; your own JID for your own message)"),
+			),
+			mcp.WithString("emoji",
+				mcp.Description("the reaction emoji, e.g. ✅; empty removes the reaction"),
+			),
+		),
+		m.handleSendReaction,
+	)
 	// 6. load more messages on-demand
 	m.server.AddTool(
 		mcp.NewTool("load_more_messages",

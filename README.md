@@ -61,6 +61,7 @@ This server implements the full MCP specification with:
 | `send_message` | Send WhatsApp messages | To any chat or group |
 | `send_image` | Send an image + caption | Local file, uploaded to WhatsApp |
 | `send_link` | Send text with a link preview | Fetches og: tags, builds thumbnail |
+| `send_reaction` | React to a message with an emoji | Empty emoji removes it |
 | `load_more_messages` | Fetch older history | On-demand from servers |
 | `get_my_info` | Get your profile info | JID, name, status, picture |
 | `list_media` | List media in chats | Filter by chat and type |
@@ -101,7 +102,7 @@ graph TB
         B -->|/mcp endpoint| C
         B -->|/health| B
 
-        C -->|Tools| C1[list_chats<br/>get_chat_messages<br/>search_messages<br/>find_chat<br/>send_message<br/>send_image<br/>send_link<br/>load_more_messages<br/>get_my_info<br/>list_media<br/>get_media]
+        C -->|Tools| C1[list_chats<br/>get_chat_messages<br/>search_messages<br/>find_chat<br/>send_message<br/>send_image<br/>send_link<br/>send_reaction<br/>load_more_messages<br/>get_my_info<br/>list_media<br/>get_media]
         C -->|Prompts| C2[search_person_messages<br/>get_context_about_person<br/>analyze_conversation<br/>search_keyword]
         C -->|Resources| C3[Workflow Guides<br/>Search Patterns<br/>JID Format]
 
@@ -330,6 +331,7 @@ inherits someone else's account.
 | `send_message` | `chat_jid`, `text` | Plain text. A URL in it arrives **without** a preview card. |
 | `send_image` | `chat_jid`, `image_path`, `caption?` | Sending a picture. Caption rides along in the same message. |
 | `send_link` | `chat_jid`, `text` | The text contains a URL you want rendered as a preview card. |
+| `send_reaction` | `chat_jid`, `message_id`, `sender_jid`, `emoji?` | Acknowledging a message without posting one. In a group, `sender_jid` is the message's author. |
 
 Always resolve `chat_jid` with `find_chat` or `list_chats` first — never construct one
 by hand. A JID looks like `4915112345678@s.whatsapp.net` (DM) or `...@g.us` (group).

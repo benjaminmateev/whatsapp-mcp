@@ -134,7 +134,7 @@ func (c *Client) getSenderPushName(ctx context.Context, senderJID types.JID, mes
 
 // getChatInfo returns display names for a chat.
 // For groups it returns the group name. For DMs it returns both push name and contact name.
-func (c *Client) getChatInfo(ctx context.Context, chatJID types.JID, isGroup bool, messagePushName string) (pushName string, contactName string) {
+func (c *Client) getChatInfo(ctx context.Context, chatJID types.JID, isGroup bool, messagePushName string, isFromMe bool) (pushName string, contactName string) {
 	if isGroup {
 		// for groups, fetch group name (with caching)
 		groupName, err := c.getGroupInfoCached(ctx, chatJID)
@@ -160,8 +160,10 @@ func (c *Client) getChatInfo(ctx context.Context, chatJID types.JID, isGroup boo
 		}
 	}
 
-	// for DMs, push name comes from the message (if not from me)
-	if messagePushName != "" {
+	// for DMs, push name comes from the message, but only if the other side sent it:
+	// an outgoing message carries our own display name, which used to rename the chat
+	// to the account owner (37 chats showed "Ramzi Rizk", 2026-10-25)
+	if messagePushName != "" && !isFromMe {
 		pushName = messagePushName
 	}
 
@@ -175,7 +177,7 @@ func (c *Client) processMessageData(ctx context.Context, data messageData) error
 	senderJID := c.normalizeJID(data.SenderJID)
 
 	// get chat info (group name or DM contact/push names)
-	chatPushName, chatContactName := c.getChatInfo(ctx, data.ChatJID, data.IsGroup, data.PushName)
+	chatPushName, chatContactName := c.getChatInfo(ctx, data.ChatJID, data.IsGroup, data.PushName, data.IsFromMe)
 
 	// save/update chat BEFORE message (for foreign key constraint)
 	chat := storage.Chat{
@@ -473,7 +475,7 @@ func (c *Client) handleMessage(evt *events.Message) {
 	// Emit webhook event if manager is configured
 	if c.webhookManager != nil {
 		// Get chat names for context
-		chatPushName, chatContactName := c.getChatInfo(ctx, data.ChatJID, data.IsGroup, data.PushName)
+		chatPushName, chatContactName := c.getChatInfo(ctx, data.ChatJID, data.IsGroup, data.PushName, data.IsFromMe)
 
 		// Determine the chat name to use (prefer contact name, fallback to push name)
 		chatName := chatContactName
@@ -484,7 +486,7 @@ func (c *Client) handleMessage(evt *events.Message) {
 		// For sender, get their info if not from me
 		var senderPushName, senderContactName string
 		if !data.IsFromMe {
-			senderPushName, senderContactName = c.getChatInfo(ctx, data.SenderJID, false, data.PushName)
+			senderPushName, senderContactName = c.getChatInfo(ctx, data.SenderJID, false, data.PushName, false)
 		}
 
 		msgWithNames := storage.MessageWithNames{
@@ -664,7 +666,7 @@ func (c *Client) handleHistorySync(evt *events.HistorySync) {
 					}
 				} else {
 					// create new chat entry (will be saved in batch later)
-					chatPushName, chatContactName := c.getChatInfo(ctx, msgData.ChatJID, msgData.IsGroup, msgData.PushName)
+					chatPushName, chatContactName := c.getChatInfo(ctx, msgData.ChatJID, msgData.IsGroup, msgData.PushName, msgData.IsFromMe)
 					chatMap[normalizedChatJID] = &storage.Chat{
 						JID:             normalizedChatJID,
 						PushName:        chatPushName,

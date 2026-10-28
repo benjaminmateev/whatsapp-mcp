@@ -27,6 +27,8 @@ func (c *Client) eventHandler(evt any) {
 		c.handleContact(v)
 	case *events.PushName:
 		c.handlePushName(v)
+	case *events.AppStateSyncComplete:
+		c.handleAppStateSyncComplete(v)
 	case *events.Connected:
 		c.log.Infof("Connected to WhatsApp (JID: %s)", c.wa.Store.ID)
 	case *events.Disconnected:
@@ -146,25 +148,24 @@ func (c *Client) getChatInfo(ctx context.Context, chatJID types.JID, isGroup boo
 	}
 
 	// for DMs, get contact name from contact store
+	// priority: FullName (saved contact) > FirstName > BusinessName
+	var storedPushName string
 	if c.wa.Store.Contacts != nil {
 		contactInfo, err := c.wa.Store.Contacts.GetContact(ctx, chatJID)
 		if err == nil && contactInfo.Found {
-			// priority: FullName (saved contact) > FirstName > BusinessName
-			if contactInfo.FullName != "" {
-				contactName = contactInfo.FullName
-			} else if contactInfo.FirstName != "" {
-				contactName = contactInfo.FirstName
-			} else if contactInfo.BusinessName != "" {
-				contactName = contactInfo.BusinessName
-			}
+			contactName = contactDisplayName(contactInfo)
+			storedPushName = contactInfo.PushName
 		}
 	}
 
 	// for DMs, push name comes from the message, but only if the other side sent it:
 	// an outgoing message carries our own display name, which used to rename the chat
-	// to the account owner (37 chats showed "Ramzi Rizk", 2026-10-25)
+	// to the account owner (37 chats showed "Ramzi Rizk", 2026-10-25).
+	// Otherwise fall back to the contact's push name from the contact store.
 	if messagePushName != "" && !isFromMe {
 		pushName = messagePushName
+	} else {
+		pushName = storedPushName
 	}
 
 	return pushName, contactName
@@ -534,21 +535,6 @@ func (c *Client) handleGroupInfo(evt *events.GroupInfo) {
 
 		c.log.Infof("Updated group name: %s -> %s", evt.JID, evt.Name.Name)
 	}
-}
-
-// handleContact processes contact info updates from app state sync.
-func (c *Client) handleContact(evt *events.Contact) {
-	c.log.Debugf("Contact info updated: %s (FullName: %s, FirstName: %s)",
-		evt.JID, evt.Action.GetFullName(), evt.Action.GetFirstName())
-	// contact info is automatically stored by whatsmeow in the contact store
-	// no additional action needed - getChatInfo() will retrieve it
-}
-
-// handlePushName processes push name updates from WhatsApp.
-func (c *Client) handlePushName(evt *events.PushName) {
-	c.log.Debugf("Push name updated: %s -> %s", evt.JID, evt.NewPushName)
-	// push name is automatically stored by whatsmeow in the contact store
-	// no additional action needed - getChatInfo() will retrieve it
 }
 
 func (c *Client) handleHistorySync(evt *events.HistorySync) {

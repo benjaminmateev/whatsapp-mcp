@@ -173,6 +173,12 @@ func main() {
 	} else {
 		log.Println("Already logged in")
 
+		// fill chat names from the contact store and repair DM chats that show
+		// the owner's own name (idempotent, local databases only)
+		if err := waClient.SyncChatNames(context.Background()); err != nil {
+			log.Printf("Warning: chat name sync failed: %v", err)
+		}
+
 		if err := waClient.Connect(); err != nil {
 			log.Fatal("Failed to connect:", err)
 		}
